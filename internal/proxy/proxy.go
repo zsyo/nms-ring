@@ -29,7 +29,7 @@ var (
 	levelDict  = map[string]string{
 		"[SSS] ": "\x1b[48;2;255;215;0m SSS \x1b[0m ",
 		"[SS+] ": "\x1b[48;2;255;69;0m SS+ \x1b[0m ",
-		"[SS] ":  "\x1b[48;2;255;69;0m SS  \x1b[0m ",
+		"[S S] ": "\x1b[48;2;255;69;0m SS  \x1b[0m ",
 		"[S] ":   "\x1b[48;2;255;140;0m  S  \x1b[0m ",
 		"[A] ":   "\x1b[48;2;131;90;170m  A  \x1b[0m ",
 		"[B] ":   "\x1b[48;2;70;130;180m  B  \x1b[0m ",
@@ -68,7 +68,7 @@ func (p *Proxy) Run() {
 
 				text := string(utf8text)
 				// 判断星球类型是否播放铃声
-				if strings.Contains(text, "[S]") || strings.Contains(text, "[SS]") || strings.Contains(text, "[SS+]") || strings.Contains(text, "[SSS]") {
+				if strings.Contains(text, "[S]") || strings.Contains(text, "[S S]") || strings.Contains(text, "[SS+]") || strings.Contains(text, "[SSS]") {
 					go ring.Play()
 				}
 				for key, val := range levelDict {
@@ -89,7 +89,7 @@ func (p *Proxy) Run() {
 				// 显示输出
 				fmt.Print(text)
 				// 判断是否要用户输入确认
-				if strings.Contains(text, "[Y]我同意 [N]不同意:") || strings.Contains(text, "请输入命令:") || strings.Contains(text, "请输入选择:") {
+				if strings.Contains(text, "[Y]我同意 [N]不同意:") || strings.Contains(text, "请输入命令:") || strings.Contains(text, "请输入选择:") || strings.Contains(text, "输入Q退出探针:") {
 					// 将用户输入转发
 					var input string
 					fmt.Scan(&input)
@@ -125,7 +125,7 @@ func msgRead(p io.Reader) <-chan msg {
 	ch := make(chan msg, 10)
 	go func() {
 		for {
-			buf := make([]byte, 1<<10)
+			buf := make([]byte, 64*1024)
 			length, err := p.Read(buf)
 			if err != nil {
 				ch <- msg{m: buf[:0], e: err}
