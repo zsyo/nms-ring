@@ -26,7 +26,7 @@ func init() {
 }
 
 const (
-	LevelE = iota
+	LevelE = iota + 1
 	LevelD
 	LevelC
 	LevelB

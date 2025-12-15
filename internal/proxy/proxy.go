@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"nms-ring/internal/ring"
 
@@ -29,6 +30,7 @@ func (p *Proxy) Run() {
 	}
 	defer p.pty.Close()
 
+	go p.ringWorker()
 	go p.readLoop()
 
 	// 等待程序退出
@@ -65,8 +67,8 @@ func (p *Proxy) handleOutput(raw []byte) {
 	// fmt.Printf("原始文本: ->%q<-\n", raw)
 	text := string(raw)
 
-	// 播放铃声
-	go p.playRing(text)
+	// 收集通知信息
+	go p.collectRing(text)
 
 	// 输出终端
 	fmt.Print(text)
@@ -84,9 +86,18 @@ func (p *Proxy) handleOutput(raw []byte) {
 	}
 }
 
-var levelRegex = regexp.MustCompile(`(?: (SSS|SS\+|S S) |  ([SABCDE])  )`)
+var (
+	levelCh    = make(chan int, 20)
+	ticker     = time.NewTicker(time.Millisecond * 500)
+	levelRegex = regexp.MustCompile(`(?: (SSS|SS\+|S S) |  ([SABCDE])  )`)
+)
 
-func (p *Proxy) playRing(text string) {
+func (p *Proxy) collectRing(text string) {
+	// 当文本中有 "加载完成" 四个字的时候,开启一个新的等级收集器,并在500毫秒后统计收集器中所有等级的最高级进行尝试提醒
+	if strings.Contains(text, "加载完成") {
+		ticker.Reset(time.Millisecond * 500)
+	}
+
 	ls := levelRegex.FindAllStringSubmatch(text, -1)
 	if len(ls) > 0 {
 		// fmt.Printf("匹配等级数据: %#v \n", ls)
@@ -113,7 +124,36 @@ func (p *Proxy) playRing(text string) {
 				maxL = max(maxL, ring.LevelE)
 			}
 		}
-		ring.Play(maxL)
+		levelCh <- maxL
+	}
+}
+
+func (p *Proxy) ringWorker() {
+	for range ticker.C {
+		var maxL int
+		var hasValue bool
+
+		for {
+			select {
+			case <-p.ctx.Done():
+				ticker.Stop()
+				close(levelCh)
+				return
+			case v := <-levelCh:
+				if !hasValue || v > maxL {
+					maxL = v
+				}
+				hasValue = true
+			default:
+				// channel空了
+				if hasValue {
+					// fmt.Println("最大等级:", maxL)
+					ring.Play(maxL)
+				}
+				goto END
+			}
+		}
+	END:
 	}
 }
 
