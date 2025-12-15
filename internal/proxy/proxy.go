@@ -63,8 +63,8 @@ func (p *Proxy) readLoop() {
 
 func (p *Proxy) handleOutput(raw []byte) {
 	// fmt.Printf("原始文本: ->%q<-\n", raw)
-
 	text := string(raw)
+
 	// 播放铃声
 	go p.playRing(text)
 
@@ -89,9 +89,10 @@ var levelRegex = regexp.MustCompile(`(?: (SSS|SS\+|S S) |  ([SABCDE])  )`)
 func (p *Proxy) playRing(text string) {
 	ls := levelRegex.FindAllStringSubmatch(text, -1)
 	if len(ls) > 0 {
+		// fmt.Printf("匹配等级数据: %#v \n", ls)
 		var maxL int
 		for _, l := range ls {
-			switch l[1] {
+			switch l[2] {
 			case "SSS":
 				maxL = max(maxL, ring.LevelSSS)
 			case "SS+":
