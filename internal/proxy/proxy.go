@@ -1,141 +1,89 @@
 package proxy
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
-	"regexp"
 	"strings"
 
 	"nms-ring/internal/ring"
 
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
+	"github.com/UserExistsError/conpty"
 )
 
 type Proxy struct {
-	cmd *exec.Cmd
+	cmd string
 	ctx context.Context
 
-	input  io.WriteCloser
-	output io.Reader
+	pty *conpty.ConPty
 }
 
-var (
-	colorRegex = regexp.MustCompile(`\[(\?\?|\d{2})\]\s*\((\d{1,3}),(\d{1,3}),(\d{1,3})\)`)
-	levelDict  = map[string]string{
-		"[SSS] ": "\x1b[48;2;255;215;0m SSS \x1b[0m ",
-		"[SS+] ": "\x1b[48;2;255;69;0m SS+ \x1b[0m ",
-		"[S S] ": "\x1b[48;2;255;69;0m SS  \x1b[0m ",
-		"[S] ":   "\x1b[48;2;255;140;0m  S  \x1b[0m ",
-		"[A] ":   "\x1b[48;2;131;90;170m  A  \x1b[0m ",
-		"[B] ":   "\x1b[48;2;70;130;180m  B  \x1b[0m ",
-		"[C] ":   "\x1b[48;2;60;130;80m  C  \x1b[0m ",
-		"[D] ":   "\x1b[48;2;245;245;245m  D  \x1b[0m ",
-		"[E] ":   "\x1b[48;2;200;200;210m  E  \x1b[0m ",
-	}
-)
-
 func (p *Proxy) Run() {
-	err := p.cmd.Start()
+	var err error
+	p.pty, err = conpty.Start(p.cmd, conpty.ConPtyDimensions(120, 40))
 	if err != nil {
 		fmt.Println("启动程序失败:", err)
 		return
 	}
+	defer p.pty.Close()
 
-	go func() {
-		// 循环获取输出信息
-		msgCh := msgRead(p.output)
-
-		for {
-			select {
-			case msg := <-msgCh:
-				if msg.e != nil {
-					if !errors.Is(msg.e, io.EOF) {
-						fmt.Println("读取输出失败:", msg.e)
-					}
-					return
-				}
-				reader := transform.NewReader(bytes.NewReader(msg.m), simplifiedchinese.GBK.NewDecoder())
-				utf8text, err := io.ReadAll(reader)
-				if err != nil {
-					fmt.Println("转换编码失败:", err)
-					return
-				}
-
-				text := string(utf8text)
-				// 判断星球类型是否播放铃声
-				if strings.Contains(text, "[S]") || strings.Contains(text, "[S S]") || strings.Contains(text, "[SS+]") || strings.Contains(text, "[SSS]") {
-					go ring.Play()
-				}
-				for key, val := range levelDict {
-					text = strings.ReplaceAll(text, key, val)
-				}
-
-				// 处理颜色输出
-				list := colorRegex.FindAllStringSubmatch(text, -1)
-				for _, item := range list {
-					if item[1] == "??" {
-						item[1] = "  "
-					} else {
-						item[1] = fmt.Sprintf(" %s ", item[1])
-					}
-					text = strings.ReplaceAll(text, item[0], fmt.Sprintf("\x1b[48;2;%s;%s;%sm%s\x1b[0m", item[2], item[3], item[4], item[1]))
-				}
-
-				// 显示输出
-				fmt.Print(text)
-				// 判断是否要用户输入确认
-				if strings.Contains(text, "[Y]我同意 [N]不同意:") || strings.Contains(text, "请输入命令:") || strings.Contains(text, "请输入选择:") || strings.Contains(text, "输入Q退出探针:") {
-					// 将用户输入转发
-					var input string
-					fmt.Scan(&input)
-					input += "\n"
-
-					_, err := p.input.Write([]byte(input))
-					if err != nil {
-						fmt.Println("写入用户输入失败:", err)
-						return
-					}
-				}
-
-			case <-p.ctx.Done():
-				return
-			}
-		}
-	}()
+	go p.readLoop()
 
 	// 等待程序退出
-	err = p.cmd.Wait()
+	_, err = p.pty.Wait(p.ctx)
 	if err != nil {
 		fmt.Println("程序异常退出:", err)
 		return
 	}
 }
 
-type msg struct {
-	m []byte
-	e error
-}
+func (p *Proxy) readLoop() {
+	buf := make([]byte, 4096)
 
-func msgRead(p io.Reader) <-chan msg {
-	ch := make(chan msg, 10)
-	go func() {
-		for {
-			buf := make([]byte, 64*1024)
-			length, err := p.Read(buf)
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		default:
+			n, err := p.pty.Read(buf)
+			if n > 0 {
+				p.handleOutput(buf[:n])
+			}
 			if err != nil {
-				ch <- msg{m: buf[:0], e: err}
-				close(ch)
+				if !errors.Is(err, io.EOF) {
+					fmt.Println("读取 PTY 失败:", err)
+				}
 				return
 			}
-			ch <- msg{m: buf[:length]}
 		}
-	}()
-	return ch
+	}
+}
+
+func (p *Proxy) handleOutput(raw []byte) {
+	// fmt.Printf("原始文本: ->%q<-\n", raw)
+
+	text := string(raw)
+	// 播放铃声
+	if strings.Contains(text, "  S  ") ||
+		strings.Contains(text, " S S ") ||
+		strings.Contains(text, " SS+ ") ||
+		strings.Contains(text, " SSS ") {
+		go ring.Play()
+	}
+	fmt.Print(text)
+
+	// 交互输入
+	if strings.Contains(text, "[Y]我同意 [N]不同意:") ||
+		strings.Contains(text, "请输入命令:") ||
+		strings.Contains(text, "请输入选择:") ||
+		strings.Contains(text, "输入Q退出探针:") {
+
+		var input string
+		fmt.Scan(&input)
+		input += "\r\n"
+		_, _ = p.pty.Write([]byte(input))
+	}
 }
 
 func Run(programPath string) {
@@ -149,31 +97,8 @@ func Run(programPath string) {
 
 	p := Proxy{
 		ctx: ctx,
-		cmd: exec.CommandContext(ctx, programPath),
+		cmd: programPath,
 	}
-
-	// 设置管道
-	stdout, err := p.cmd.StdoutPipe()
-	if err != nil {
-		fmt.Println("创建标准输出管道失败:", err)
-		return
-	}
-	defer stdout.Close()
-
-	stderr, err := p.cmd.StderrPipe()
-	if err != nil {
-		fmt.Println("创建标准错误管道失败:", err)
-		return
-	}
-	defer stderr.Close()
-	p.output = io.MultiReader(stdout, stderr)
-
-	p.input, err = p.cmd.StdinPipe()
-	if err != nil {
-		fmt.Println("创建输入管道失败:", err)
-		return
-	}
-	defer p.input.Close()
 
 	p.Run()
 }
