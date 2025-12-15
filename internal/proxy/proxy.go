@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"nms-ring/internal/ring"
@@ -65,12 +66,9 @@ func (p *Proxy) handleOutput(raw []byte) {
 
 	text := string(raw)
 	// 播放铃声
-	if strings.Contains(text, "  S  ") ||
-		strings.Contains(text, " S S ") ||
-		strings.Contains(text, " SS+ ") ||
-		strings.Contains(text, " SSS ") {
-		go ring.Play()
-	}
+	go p.playRing(text)
+
+	// 输出终端
 	fmt.Print(text)
 
 	// 交互输入
@@ -83,6 +81,38 @@ func (p *Proxy) handleOutput(raw []byte) {
 		fmt.Scan(&input)
 		input += "\r\n"
 		_, _ = p.pty.Write([]byte(input))
+	}
+}
+
+var levelRegex = regexp.MustCompile(`(?: (SSS|SS\+|S S) |  ([SABCDE])  )`)
+
+func (p *Proxy) playRing(text string) {
+	ls := levelRegex.FindAllStringSubmatch(text, -1)
+	if len(ls) > 0 {
+		var maxL int
+		for _, l := range ls {
+			switch l[1] {
+			case "SSS":
+				maxL = max(maxL, ring.LevelSSS)
+			case "SS+":
+				maxL = max(maxL, ring.LevelSSPlus)
+			case "S S":
+				maxL = max(maxL, ring.LevelSS)
+			case "S":
+				maxL = max(maxL, ring.LevelS)
+			case "A":
+				maxL = max(maxL, ring.LevelA)
+			case "B":
+				maxL = max(maxL, ring.LevelB)
+			case "C":
+				maxL = max(maxL, ring.LevelC)
+			case "D":
+				maxL = max(maxL, ring.LevelD)
+			case "E":
+				maxL = max(maxL, ring.LevelE)
+			}
+		}
+		ring.Play(maxL)
 	}
 }
 
