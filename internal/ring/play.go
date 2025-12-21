@@ -49,6 +49,18 @@ var levelDict = map[string]int{
 	"SSS": LevelSSS,
 }
 
+var scoreGrades = [][2]int{
+	{LevelSSS, 120},
+	{LevelSSPlus, 118},
+	{LevelSS, 115},
+	{LevelS, 110},
+	{LevelA, 100},
+	{LevelB, 90},
+	{LevelC, 75},
+	{LevelD, 60},
+	{LevelE, 1},
+}
+
 var ringFiles = map[int]string{
 	LevelE:      "sounds/e.ogg",
 	LevelD:      "sounds/d.ogg",
@@ -196,6 +208,15 @@ func SetCustomRing(path string) {
 
 func IsCustomRingSet() bool {
 	return customBuf != nil
+}
+
+func Score2Level(score int) int {
+	for _, grade := range scoreGrades {
+		if score >= grade[1] {
+			return grade[0]
+		}
+	}
+	return 0
 }
 
 func Play(level int) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,10 +90,13 @@ func (p *Proxy) handleOutput(raw []byte) {
 var (
 	levelCh    = make(chan int, 20)
 	ticker     = time.NewTicker(time.Millisecond * 500)
-	levelRegex = regexp.MustCompile(`(?: (SSS|SS\+|S S) |  ([SABCDE])  )`)
+	levelRegex = regexp.MustCompile(`\s+(SSS|SS\+|S S|[SABCDE])\s+\x1b\[m`)
+	scoreRegex = regexp.MustCompile(`\s+(\d{1,3})\s+\x1b\[m\s+0x([0-9A-F]+)`)
 )
 
 func (p *Proxy) collectRing(text string) {
+	// fmt.Printf("文本数据: ->%q<-\n", text)
+
 	// 当文本中有 "加载完成" 四个字的时候,开启一个新的等级收集器,并在500毫秒后统计收集器中所有等级的最高级进行尝试提醒
 	if strings.Contains(text, "加载完成") {
 		ticker.Reset(time.Millisecond * 500)
@@ -103,7 +107,7 @@ func (p *Proxy) collectRing(text string) {
 		// fmt.Printf("匹配等级数据: %#v \n", ls)
 		var maxL int
 		for _, l := range ls {
-			switch l[2] {
+			switch l[1] {
 			case "SSS":
 				maxL = max(maxL, ring.LevelSSS)
 			case "SS+":
@@ -123,6 +127,18 @@ func (p *Proxy) collectRing(text string) {
 			case "E":
 				maxL = max(maxL, ring.LevelE)
 			}
+		}
+		levelCh <- maxL
+	}
+
+	ss := scoreRegex.FindAllStringSubmatch(text, -1)
+	if len(ss) > 0 {
+		// fmt.Printf("匹配分数数据: %#v \n", ss)
+		var maxL int
+		for _, s := range ss {
+			score, _ := strconv.Atoi(s[1])
+			level := ring.Score2Level(score)
+			maxL = max(maxL, level)
 		}
 		levelCh <- maxL
 	}
