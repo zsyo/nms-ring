@@ -24,7 +24,7 @@ type Proxy struct {
 
 func (p *Proxy) Run() {
 	var err error
-	p.pty, err = conpty.Start(p.cmd, conpty.ConPtyDimensions(120, 40))
+	p.pty, err = conpty.Start(p.cmd, conpty.ConPtyDimensions(180, 40))
 	if err != nil {
 		fmt.Println("启动程序失败:", err)
 		return
