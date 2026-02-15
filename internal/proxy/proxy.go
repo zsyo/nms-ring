@@ -16,13 +16,30 @@ import (
 )
 
 type Proxy struct {
-	cmd string
-	ctx context.Context
+	cmd    string
+	cancel context.CancelFunc
 
-	pty *conpty.ConPty
+	restart bool
+
+	pty   *conpty.ConPty
+	input map[string]string
 }
 
 func (p *Proxy) Run() {
+	// 首次运行
+	p.run()
+
+	// 重启
+	for p.restart {
+		p.run()
+	}
+}
+
+func (p *Proxy) run() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.cancel = cancel
+
 	var err error
 	p.pty, err = conpty.Start(p.cmd, conpty.ConPtyDimensions(180, 40))
 	if err != nil {
@@ -31,23 +48,23 @@ func (p *Proxy) Run() {
 	}
 	defer p.pty.Close()
 
-	go p.ringWorker()
-	go p.readLoop()
+	go p.ringWorker(ctx)
+	go p.readLoop(ctx)
 
 	// 等待程序退出
-	_, err = p.pty.Wait(p.ctx)
+	_, err = p.pty.Wait(ctx)
 	if err != nil {
 		fmt.Println("程序异常退出:", err)
 		return
 	}
 }
 
-func (p *Proxy) readLoop() {
+func (p *Proxy) readLoop(ctx context.Context) {
 	buf := make([]byte, 4096)
 
 	for {
 		select {
-		case <-p.ctx.Done():
+		case <-ctx.Done():
 			return
 		default:
 			n, err := p.pty.Read(buf)
@@ -71,18 +88,54 @@ func (p *Proxy) handleOutput(raw []byte) {
 	// 收集通知信息
 	go p.collectRing(text)
 
+	// 程序退出还是重启
+	if strings.Contains(text, "输入Q退出探针:") {
+		text = strings.ReplaceAll(text, "输入Q退出探针:", "输入Q退出探针或输入R重新监听:")
+		fmt.Print(text)
+
+		var input string
+
+	reinput:
+		fmt.Scan(&input)
+
+		input = strings.ToLower(input)
+		switch input {
+		case "q":
+			p.restart = false
+			input += "\r\n"
+			_, _ = p.pty.Write([]byte(input))
+		case "r":
+			p.restart = true
+			p.cancel()
+		default:
+			fmt.Print("无效输入, 请输入Q退出探针或输入R重新监听:")
+			goto reinput
+		}
+		return
+	}
+
 	// 输出终端
 	fmt.Print(text)
 
 	// 交互输入
-	if strings.Contains(text, "[Y]我同意 [N]不同意:") ||
-		strings.Contains(text, "请输入命令:") ||
-		strings.Contains(text, "请输入选择:") ||
-		strings.Contains(text, "输入Q退出探针:") {
+	var option string
+	if strings.Contains(text, "[Y]我同意 [N]不同意:") {
+		option = "LICENSE"
+	} else if strings.Contains(text, "请输入命令:") {
+		option = "COMMAND"
+	} else if strings.Contains(text, "请输入选择:") {
+		option = "MODE"
+	}
+	if option != "" {
+		input, ok := p.input[option]
+		if !ok {
+			fmt.Scan(&input)
+			input += "\r\n"
 
-		var input string
-		fmt.Scan(&input)
-		input += "\r\n"
+			p.input[option] = input
+		} else {
+			time.Sleep(time.Millisecond * 500)
+		}
 		_, _ = p.pty.Write([]byte(input))
 	}
 }
@@ -144,14 +197,14 @@ func (p *Proxy) collectRing(text string) {
 	}
 }
 
-func (p *Proxy) ringWorker() {
+func (p *Proxy) ringWorker(ctx context.Context) {
 	for range ticker.C {
 		var maxL int
 		var hasValue bool
 
 		for {
 			select {
-			case <-p.ctx.Done():
+			case <-ctx.Done():
 				ticker.Stop()
 				close(levelCh)
 				return
@@ -179,12 +232,9 @@ func Run(programPath string) {
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	p := Proxy{
-		ctx: ctx,
-		cmd: programPath,
+		cmd:   programPath,
+		input: make(map[string]string),
 	}
 
 	p.Run()
