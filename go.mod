@@ -1,6 +1,6 @@
 module nms-ring
 
-go 1.25.5
+go 1.25.0
 
 require (
 	github.com/UserExistsError/conpty v0.1.4
@@ -14,5 +14,5 @@ require (
 	github.com/jfreymuth/oggvorbis v1.0.5 // indirect
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
 )

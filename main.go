@@ -12,6 +12,7 @@ import (
 func main() {
 	// 可选参数
 	level := flag.String("l", "S", "level: E D C B A S SS SS+ SSS")
+	quick := flag.Bool("q", false, "quick mode")
 	flag.Parse()
 
 	args := flag.Args()
@@ -21,14 +22,22 @@ func main() {
 	}
 
 	ring.Init(*level)
-	if ring.IsCustomRingSet() {
-		fmt.Println("3秒后将预览提醒铃声(自定义铃声)...")
+	if !*quick {
+		if ring.IsCustomRingSet() {
+			fmt.Println("3秒后将预览提醒铃声(自定义铃声)...")
+		} else {
+			fmt.Println("3秒后将预览提醒铃声...")
+		}
+		time.Sleep(time.Second * 3)
+		ring.Play(ring.LevelSSS)
+		fmt.Println("提醒铃声预览结束.(如未听到声音,请检查您的设备音量,并重新运行)")
 	} else {
-		fmt.Println("3秒后将预览提醒铃声...")
+		if ring.IsCustomRingSet() {
+			fmt.Println("已应用自定义铃声")
+		} else {
+			fmt.Println("已应用标准提醒铃声")
+		}
 	}
-	time.Sleep(time.Second * 3)
-	ring.Play(ring.LevelSSS)
-	fmt.Println("提醒铃声预览结束.(如未听到声音,请检查您的设备音量,并重新运行)")
 
 	proxy.Run(args[0])
 }
