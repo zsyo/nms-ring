@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"nms-ring/internal/ring"
@@ -238,4 +239,11 @@ func Run(programPath string) {
 	}
 
 	p.Run()
+
+	fmt.Println("按任意键退出程序...")
+	// 加载 Windows 的键盘处理动态链接库
+	h, _ := syscall.LoadLibrary("msvcrt.dll")
+	getch, _ := syscall.GetProcAddress(h, "_getch")
+	// 调用 _getch，程序会在这里阻塞，直到你按下任意一个按键
+	syscall.SyscallN(getch)
 }
