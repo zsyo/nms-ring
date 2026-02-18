@@ -34,6 +34,8 @@ func (p *Proxy) Run() {
 	for p.restart {
 		p.run()
 	}
+
+	close(levelCh)
 }
 
 func (p *Proxy) run() {
@@ -207,7 +209,6 @@ func (p *Proxy) ringWorker(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				ticker.Stop()
-				close(levelCh)
 				return
 			case v := <-levelCh:
 				if !hasValue || v > maxL {
